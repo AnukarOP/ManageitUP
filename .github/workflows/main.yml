@@ -1,0 +1,502 @@
+Skip to content
+DEV Community
+Search...
+
+Log in
+Create account
+
+0
+Jump to Comments
+21
+Save
+
+Cover image for Build, Test and Deploy your Android Application📱  with GitHub Actions 🤖
+Julien Foratier
+Julien Foratier
+Posted on Nov 26, 2021
+
+
+15
+
+4
+Build, Test and Deploy your Android Application📱 with GitHub Actions 🤖
+#
+actionshackathon21
+#
+android
+#
+kotlin
+#
+github
+My Workflow
+As an Android developer, I would like to put under control the developments of an oss sandbox application gathering some practices in a functional application.
+
+In a craftmanship approach I like to work with practices such as industrialization, continuous quality control, functional orientation and fast delivery.
+
+You will find in this repo a some practices and patterns on workflow files that I will detail below.
+
+Submission Category: Phone Friendly
+Yaml File / Link to Code
+In the project you can find different workflow files :
+
+CI Workflow - Make build, test and quality check
+Release Workflow - Deal with release control and deployment
+Super-linter Workflow - Check all files with common lint rules
+Here is the main Build workflow 👉
+name: Build
+
+on:
+  push:
+    branches: [ main ] # Just in case main was not up to date while merging PR
+  pull_request:
+    types: [ opened, synchronize ]
+
+jobs:
+  build-and-test:
+    name: Build, Lint and Test
+    runs-on: macos-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Set up our JDK environment
+        uses: actions/setup-java@v2
+        with:
+          distribution: 'adopt'
+          java-version: '11'
+
+      - name: Cache Gradle and wrapper
+        uses: actions/cache@v2
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      # Decode Google services configuration file from secrets
+      # - name: Decode google-services.json
+      #  env:
+      #    FIREBASE_CONFIG: ${{ secrets.FIREBASE_CONFIG }}
+      #  run: echo $FIREBASE_CONFIG > app/google-services.json
+
+      # Run emulator
+      - name: Run integration test on emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 29
+          script: ./gradlew createDebugCoverageReport --stacktrace
+
+      # Generate jacoco report
+      - name: Generate report
+        run: ./gradlew jacocoTestReport
+
+      # Upload report
+      - name: Upload Reports
+        uses: actions/upload-artifact@v2
+        if: always()
+        with:
+          name: reports
+          path: |
+            /build/coverage-report
+            app/build/reports
+
+      # Upload coverage report to Codacy
+      - name: Run codacy-coverage-reporter
+        uses: codacy/codacy-coverage-reporter-action@v1
+        with:
+          project-token: ${{ secrets.CODACY_PROJECT_TOKEN }}
+
+  static-analysis:
+    name: Execute analyse on code
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Set up our JDK environment
+        uses: actions/setup-java@v2
+        with:
+          distribution: 'adopt'
+          java-version: '11'
+
+      - name: Cache Gradle and wrapper
+        uses: actions/cache@v2
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      # Check the code with detekt, you can remove this job if you don't use detekt
+      - name: Run detekt Linter
+        run: ./gradlew detekt
+
+      # Check the code with ktlint, you can remove this job if you don't use ktlint
+      - name: Run Kotlin Linter
+        run: ./gradlew ktlintCheck
+
+      # Check the code with Android linter (need assemble)
+      - name: Run Android Linter
+        run: ./gradlew lint
+
+      # Check the code with Spotless
+      - name: Run Spotless
+        run: ./gradlew spotlessCheck
+
+  generate-release-apk:
+    name: Try generate Releasable
+    runs-on: ubuntu-latest
+    environment: Release
+    timeout-minutes: 20
+    needs:
+      - build-and-test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+
+      - name: Set up our JDK environment
+        uses: actions/setup-java@v2
+        with:
+          distribution: 'adopt'
+          java-version: '11'
+
+      - name: Decode Keystore
+        env:
+          ENCODED_STRING: ${{ secrets.KEYSTORE }}
+        run: |
+          TMP_KEYSTORE_FILE_PATH="${RUNNER_TEMP}"/keystore
+          mkdir "${TMP_KEYSTORE_FILE_PATH}"
+          echo $ENCODED_STRING | base64 -di > "${TMP_KEYSTORE_FILE_PATH}"/keystore_file.jks
+
+      - name: Cache Gradle and wrapper
+        uses: actions/cache@v2
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      - name: Build Release
+        run: ./gradlew app:assembleRelease
+        env:
+          SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+          SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
+          SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
+In this file you can see 3 main sections :
+
+build-and-test
+static-analysis
+generate-release-apk
+CI workflow chaining
+
+The build-and-test part is in charge of building application (and check for build failure) and running tests, both unit and instrumented. For instrumented it used android-emulator-runner to prepare a device in order to run. At the end a Jacoco task is merging different coverage result and upload them to Codacy
+
+In parallel of this task, static-analysis is running some of android popular linters : ktLint, detekt, Android lint, Spotless
+
+The last task generate-release-apk is waiting for build-and-test to complete and succeed before running then it will try to build an releaseable apk without publish it.
+
+The real publishing task is in the Release Workflow which do the same job but in an other part of the delivery workflow, when a new version-tag is added. You can notice that the workflow deploy the final apk to firebase through firebase-app-distribution task.
+
+Finally the *.apk file is available to Firebase App Distribution
+App distribution ready to serve
+
+Additional Resources / Info
+Do not hesitate to explore the repository
+
+GitHub logo boitakub / Bogadex
+🎲 BoardGameGeek collections explorer application using Hilt, Coroutines, Flow, Jetpack (Room, ViewModel) based on MVVM architecture.
+Bogadex
+Bogadex
+
+Build Status Super-Linter   API API License gitmoji badge
+
+Bogadex is a small demo and functionnal application based on modern Android application tech-stacks and MVVM architecture.
+This project aim to regroup and present most of current practices and patterns.
+Also dealing with data (from BoardGameGeek) and presenting them in elegants ways.
+
+
+Bogadex - Screenshot
+
+Download 📲
+Go to the Releases to download the latest APK.
+
+Features ✨
+Free and open source
+List all you BoardGameGeekCollection
+Tech stack & Open-source libraries 🧬
+Minimum SDK level 23
+Kotlin based, Coroutines + Flow for asynchronous.
+Hilt for dependency injection.
+JetPack
+Lifecycle - dispose of observing data when lifecycle state changes.
+ViewModel - UI related data holder, lifecycle aware.
+Room - construct a database using the abstract layer.
+Worker -
+Architecture
+MVVM Architecture (View - DataBinding - ViewModel - Model)
+Bindables - Android DataBinding kit for notifying data changes to UI layers.
+Business oriented with UseCases pattern
+Repository pattern
+Design
+App bars: bottom
+Retrofit2…
+View on GitHub
+And some of the Github Actions it used :
+
+Workflow folder - All Github Actions workflows
+Android emulator for instrumented - GHAction
+Super-linter - GHAction
+Firebase App Distribution - GHAction
+Top comments (0)
+
+Subscribe
+pic
+Add to the discussion
+Code of Conduct • Report abuse
+profile
+Sentry
+PROMOTED
+
+Sentry growth stunted Image
+
+If you are wasting time trying to track down the cause of a crash, it’s time for a better solution. Get your crash rates to zero (or close to zero as possible) with less time and effort.
+
+Try Sentry for more visibility into crashes, better workflow tools, and customizable alerts and reporting.
+
+Switch Tools
+
+Read next
+vtsen profile image
+Simplify ViewModelProvider.Factory() Implementation with Kotlin Lambda and Object Expressions
+Vincent Tsen - Sep 16
+
+nagref profile image
+Hacktoberfest 2023: Celebrando o Open Source💻🎃
+Fagner Lima - Oct 19
+
+bekahhw profile image
+Setting Up Your First GitHub Action
+BekahHW - Oct 17
+
+tausifcreates profile image
+Meet Fred: The most awesome Redis client for Rust.
+Tausif - Oct 18
+
+
+Julien Foratier
+Follow
+Passionate Software Engineer 👨‍💻• Servant Leader 🤝• App Maker 📱💻• EUC Rider • 👨‍👩‍👦🎲
+LOCATION
+Pas-de-calais, France
+EDUCATION
+EPSI, Arras '09
+WORK
+Mobile Development Team Leader at Kinomap 🚴
+JOINED
+Apr 15, 2020
+Trending on DEV Community 
+Programming with Shahan profile image
+Why we need MATH for Programming (10 math concepts)
+#programming #development #career #beginners
+bui dang binh profile image
+Managing My Resume with Git: A Version Control Approach
+#git #github #githubactions #markdown
+Ben Halpern profile image
+Meme Monday
+#watercooler #discuss #jokes
+profile
+GitHub
+PROMOTED
+
+GitHub Universe
+
+The future of AI is here 🤖
+From GitHub Copilot to issues like ethics, accessibility, and productivity, level-up on your AI skills at this year’s GitHub Universe. Join us on Nov 8-9, in San Francisco and streaming online.
+
+Get free virtual tickets
+
+name: Build
+
+on:
+  push:
+    branches: [ main ] # Just in case main was not up to date while merging PR
+  pull_request:
+    types: [ opened, synchronize ]
+
+jobs:
+  build-and-test:
+    name: Build, Lint and Test
+    runs-on: macos-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Set up our JDK environment
+        uses: actions/setup-java@v2
+        with:
+          distribution: 'adopt'
+          java-version: '11'
+
+      - name: Cache Gradle and wrapper
+        uses: actions/cache@v2
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      # Decode Google services configuration file from secrets
+      # - name: Decode google-services.json
+      #  env:
+      #    FIREBASE_CONFIG: ${{ secrets.FIREBASE_CONFIG }}
+      #  run: echo $FIREBASE_CONFIG > app/google-services.json
+
+      # Run emulator
+      - name: Run integration test on emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 29
+          script: ./gradlew createDebugCoverageReport --stacktrace
+
+      # Generate jacoco report
+      - name: Generate report
+        run: ./gradlew jacocoTestReport
+
+      # Upload report
+      - name: Upload Reports
+        uses: actions/upload-artifact@v2
+        if: always()
+        with:
+          name: reports
+          path: |
+            /build/coverage-report
+            app/build/reports
+
+      # Upload coverage report to Codacy
+      - name: Run codacy-coverage-reporter
+        uses: codacy/codacy-coverage-reporter-action@v1
+        with:
+          project-token: ${{ secrets.CODACY_PROJECT_TOKEN }}
+
+  static-analysis:
+    name: Execute analyse on code
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Set up our JDK environment
+        uses: actions/setup-java@v2
+        with:
+          distribution: 'adopt'
+          java-version: '11'
+
+      - name: Cache Gradle and wrapper
+        uses: actions/cache@v2
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      # Check the code with detekt, you can remove this job if you don't use detekt
+      - name: Run detekt Linter
+        run: ./gradlew detekt
+
+      # Check the code with ktlint, you can remove this job if you don't use ktlint
+      - name: Run Kotlin Linter
+        run: ./gradlew ktlintCheck
+
+      # Check the code with Android linter (need assemble)
+      - name: Run Android Linter
+        run: ./gradlew lint
+
+      # Check the code with Spotless
+      - name: Run Spotless
+        run: ./gradlew spotlessCheck
+
+  generate-release-apk:
+    name: Try generate Releasable
+    runs-on: ubuntu-latest
+    environment: Release
+    timeout-minutes: 20
+    needs:
+      - build-and-test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+
+      - name: Set up our JDK environment
+        uses: actions/setup-java@v2
+        with:
+          distribution: 'adopt'
+          java-version: '11'
+
+      - name: Decode Keystore
+        env:
+          ENCODED_STRING: ${{ secrets.KEYSTORE }}
+        run: |
+          TMP_KEYSTORE_FILE_PATH="${RUNNER_TEMP}"/keystore
+          mkdir "${TMP_KEYSTORE_FILE_PATH}"
+          echo $ENCODED_STRING | base64 -di > "${TMP_KEYSTORE_FILE_PATH}"/keystore_file.jks
+
+      - name: Cache Gradle and wrapper
+        uses: actions/cache@v2
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      - name: Build Release
+        run: ./gradlew app:assembleRelease
+        env:
+          SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+          SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
+          SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
+DEV Community — A constructive and inclusive social network for software developers. With you every step of your journey.
+
+Home
+Podcasts
+Videos
+Tags
+FAQ
+Advertise on DEV
+About
+Contact
+Guides
+Software comparisons
+Code of Conduct
+Privacy Policy
+Terms of use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+
+Made with love and Ruby on Rails. DEV Community © 2016 - 2023.
