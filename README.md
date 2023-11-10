@@ -51,7 +51,7 @@ Contributions are what make the open source community such an amazing place to l
 
 ## 📱 Contact :
 
-🚀 Telegram : [**AnukarOP**](telegram.me/AnukarOP)
+🚀 Telegram : [**AnukarOP**](https://telegram.me/AnukarOP)
 
 Project Link: [ManageitUP](https://github.com/AnukarOP/ManageitUP)
 
