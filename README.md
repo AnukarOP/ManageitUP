@@ -1,4 +1,4 @@
-# [**ManageritUP** 📝](https://ManageitUP.vercel.app/)
+# [**ManageritUP** 📝](https://manageitup.in)
 \\\ Made with ❤️ by Student, For the Student \\\
 
 ## 👇🏻 Description :
@@ -26,7 +26,7 @@ The project mainly aimed to help Students for Managing their Daily To-Dos !!
 
 ## 😎 How to use :
 
-You can access the project here: https://ManageitUP.vercel.app/
+You can access the project here: https://manageitup.in
 
 ## 💡 Some Cool Features : 
 
