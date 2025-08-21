@@ -26,7 +26,7 @@ The project mainly aimed to help Students for Managing their Daily To-Dos !!
 
 ## 😎 How to use :
 
-You can access the project here: https://manageitup.in
+You can access the project here: https://manageitup.vercel.app
 
 ## 💡 Some Cool Features : 
 
